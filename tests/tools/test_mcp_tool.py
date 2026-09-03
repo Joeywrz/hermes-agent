@@ -296,11 +296,10 @@ class TestMCPStatus:
             mcp_tool._server_connecting.clear()
             mcp_tool._server_connect_errors.clear()
             mcp_tool._server_connecting.add("connecting")
-            mcp_tool._server_connect_errors["failed"] = "Connection closed"
-            failed_server = MagicMock(spec=mcp_tool.MCPServerTask)
-            failed_server.session = None
-            failed_server._error = OAuthNonInteractiveError("browser required")
-            mcp_tool._servers["failed"] = failed_server
+            mcp_tool._server_connect_errors["failed"] = mcp_tool._connect_error_text(
+                "Connection closed",
+                OAuthNonInteractiveError("browser required"),
+            )
 
         try:
             statuses = {

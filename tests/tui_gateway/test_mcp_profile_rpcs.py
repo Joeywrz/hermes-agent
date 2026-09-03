@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -171,6 +172,40 @@ def test_status_does_not_run_the_runtime_config_loader(hermes_root, monkeypatch)
 
     payload = _result(_call("mcp.servers.status", {"profile": "work"}))
     assert [server["name"] for server in payload["servers"]] == ["svc-a"]
+
+
+def test_status_does_not_mix_launch_runtime_into_another_profile(hermes_root):
+    import tools.mcp_tool as mcp_tool
+
+    _result(
+        _call(
+            "mcp.servers.add",
+            {"profile": "work", "name": "shared", "config": {"command": "work-bin"}},
+        )
+    )
+    launch_server = SimpleNamespace(
+        session=object(),
+        _registered_tool_names=["launch_secret_tool"],
+        _tools=[],
+        _sampling=None,
+    )
+    with mcp_tool._lock:
+        saved_servers = dict(mcp_tool._servers)
+        saved_scopes = dict(mcp_tool._server_scope_keys)
+        mcp_tool._servers["shared"] = launch_server
+        mcp_tool._server_scope_keys.pop("shared", None)
+
+    try:
+        payload = _result(_call("mcp.servers.status", {"profile": "work"}))
+    finally:
+        with mcp_tool._lock:
+            mcp_tool._servers.clear()
+            mcp_tool._servers.update(saved_servers)
+            mcp_tool._server_scope_keys.clear()
+            mcp_tool._server_scope_keys.update(saved_scopes)
+
+    assert payload["servers"][0]["status"] == "configured"
+    assert payload["servers"][0]["tools"] == 0
 
 
 def test_set_api_key_writes_env_and_header_to_right_profile(hermes_root):

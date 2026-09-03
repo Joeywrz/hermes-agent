@@ -2087,6 +2087,9 @@ def _(rid, params: dict) -> dict:
     Params: optional ``profile``. Raw connection errors are deliberately
     omitted because they can contain paths, URLs, or credential-adjacent data.
     """
+    from hermes_constants import hermes_home_key
+
+    runtime_home_key = hermes_home_key()
     token, err = _mcp_resolve_profile(rid, params)
     if err:
         return err
@@ -2110,7 +2113,10 @@ def _(rid, params: dict) -> dict:
             {
                 "servers": [
                     {key: entry[key] for key in safe_fields if key in entry}
-                    for entry in get_mcp_status(_get_mcp_servers())
+                    for entry in get_mcp_status(
+                        _get_mcp_servers(),
+                        include_runtime=hermes_home_key() == runtime_home_key,
+                    )
                 ],
                 "checked_at": int(time.time() * 1000),
             },

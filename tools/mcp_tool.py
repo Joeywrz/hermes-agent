@@ -5297,6 +5297,21 @@ def _connect_failure_reason(exc: BaseException) -> str:
     return "auth_required" if _is_auth_error(_unwrap_exception_group(exc)) else "check_failed"
 
 
+class _MCPConnectErrorText(str):
+    """Backward-compatible error text carrying a credential-safe reason."""
+
+    reason: str
+
+    def __new__(cls, message: str, reason: str):
+        value = super().__new__(cls, message)
+        value.reason = reason
+        return value
+
+
+def _connect_error_text(message: str, exc: BaseException) -> str:
+    return _MCPConnectErrorText(message, _connect_failure_reason(exc))
+
+
 def _handle_auth_error_and_retry(
     server_name: str,
     exc: BaseException,
@@ -6455,7 +6470,7 @@ def _ensure_lazy_server_connected(server_name: str) -> bool:
         message = _format_connect_error(exc)
         with _lock:
             _server_connecting.discard(server_name)
-            _server_connect_errors[server_name] = message
+            _server_connect_errors[server_name] = _connect_error_text(message, exc)
             _record_connect_failure(server_name)
         logger.warning(
             "Lazy MCP connect failed for '%s': %s", server_name, message,
@@ -8321,7 +8336,7 @@ def register_mcp_servers(servers: Dict[str, dict]) -> List[str]:
                 message = _format_connect_error(result)
                 with _lock:
                     _server_connecting.discard(name)
-                    _server_connect_errors[name] = message
+                    _server_connect_errors[name] = _connect_error_text(message, result)
                     # Arm the per-server backoff so the next discovery pass
                     # doesn't immediately re-spawn this failing server
                     # (#50394). Isolated to this server -- healthy servers
@@ -8368,9 +8383,10 @@ def register_mcp_servers(servers: Dict[str, dict]) -> List[str]:
                 )
                 _server_connecting.difference_update(stale)
                 for _sn in stale:
+                    message = f"Connection attempt {'timed out' if isinstance(_e, TimeoutError) else 'interrupted'} during discovery"
                     _server_connect_errors.setdefault(
                         _sn,
-                        f"Connection attempt {'timed out' if isinstance(_e, TimeoutError) else 'interrupted'} during discovery",
+                        _MCPConnectErrorText(message, "check_failed"),
                     )
 
         raise
@@ -8538,7 +8554,11 @@ def is_mcp_tool_parallel_safe(tool_name: str) -> bool:
         return bool(server_name and server_name in _parallel_safe_servers)
 
 
-def get_mcp_status(configured: Optional[Dict[str, dict]] = None) -> List[dict]:
+def get_mcp_status(
+    configured: Optional[Dict[str, dict]] = None,
+    *,
+    include_runtime: bool = True,
+) -> List[dict]:
     """Return status of all configured MCP servers for banner display.
 
     Returns a list of dicts with keys: name, transport, tools, connected,
@@ -8555,7 +8575,7 @@ def get_mcp_status(configured: Optional[Dict[str, dict]] = None) -> List[dict]:
 
     current_scope = _mcp_registry_scope()
     with _lock:
-        scope_keys = dict(_server_scope_keys)
+        scope_keys = dict(_server_scope_keys) if include_runtime else {}
 
         def visible_in_current_scope(name: str) -> bool:
             if name in scope_keys:
@@ -8565,17 +8585,17 @@ def get_mcp_status(configured: Optional[Dict[str, dict]] = None) -> List[dict]:
         active_servers = {
             name: server
             for name, server in _servers.items()
-            if visible_in_current_scope(name)
+            if include_runtime and visible_in_current_scope(name)
         }
         connecting = {
             name
             for name in _server_connecting
-            if visible_in_current_scope(name)
+            if include_runtime and visible_in_current_scope(name)
         }
         connect_errors = {
             name: error
             for name, error in _server_connect_errors.items()
-            if visible_in_current_scope(name)
+            if include_runtime and visible_in_current_scope(name)
         }
 
     for name, cfg in configured.items():
@@ -8620,6 +8640,10 @@ def get_mcp_status(configured: Optional[Dict[str, dict]] = None) -> List[dict]:
             })
         elif name in connect_errors:
             failure = getattr(server, "_error", None) if server is not None else None
+            stored_error = connect_errors[name]
+            reason = getattr(stored_error, "reason", None)
+            if reason is None and isinstance(failure, BaseException):
+                reason = _connect_failure_reason(failure)
             result.append({
                 "name": name,
                 "transport": transport,
@@ -8627,8 +8651,8 @@ def get_mcp_status(configured: Optional[Dict[str, dict]] = None) -> List[dict]:
                 "connected": False,
                 "disabled": False,
                 "status": "failed",
-                "reason": _connect_failure_reason(failure) if isinstance(failure, BaseException) else "check_failed",
-                "error": connect_errors[name],
+                "reason": reason or "check_failed",
+                "error": str(stored_error),
             })
         else:
             result.append({
