@@ -2080,6 +2080,46 @@ def _(rid, params: dict) -> dict:
         _mcp_reset_profile(token)
 
 
+@method("mcp.servers.status")
+def _(rid, params: dict) -> dict:
+    """Return cached MCP runtime state without connecting to any server.
+
+    Params: optional ``profile``. Raw connection errors are deliberately
+    omitted because they can contain paths, URLs, or credential-adjacent data.
+    """
+    token, err = _mcp_resolve_profile(rid, params)
+    if err:
+        return err
+    try:
+        import time
+
+        from tools.mcp_tool import get_mcp_status
+
+        safe_fields = (
+            "name",
+            "transport",
+            "tools",
+            "connected",
+            "disabled",
+            "status",
+            "reason",
+        )
+        return _ok(
+            rid,
+            {
+                "servers": [
+                    {key: entry[key] for key in safe_fields if key in entry}
+                    for entry in get_mcp_status()
+                ],
+                "checked_at": int(time.time() * 1000),
+            },
+        )
+    except Exception:
+        return _err(rid, 5024, "MCP status unavailable")
+    finally:
+        _mcp_reset_profile(token)
+
+
 @method("mcp.servers.add")
 def _(rid, params: dict) -> dict:
     """Add/save an MCP server to a profile's config.yaml.

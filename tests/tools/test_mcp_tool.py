@@ -268,6 +268,13 @@ class TestMCPStatus:
         self, monkeypatch
     ):
         import tools.mcp_tool as mcp_tool
+        from tools.mcp_oauth import OAuthNonInteractiveError
+
+        assert mcp_tool._connect_failure_reason(RuntimeError("network")) == "check_failed"
+        assert (
+            mcp_tool._connect_failure_reason(OAuthNonInteractiveError("browser required"))
+            == "auth_required"
+        )
 
         monkeypatch.setattr(
             mcp_tool,
@@ -283,11 +290,14 @@ class TestMCPStatus:
             saved_servers = dict(mcp_tool._servers)
             saved_connecting = set(mcp_tool._server_connecting)
             saved_errors = dict(mcp_tool._server_connect_errors)
+            saved_reasons = dict(mcp_tool._server_connect_reasons)
             mcp_tool._servers.clear()
             mcp_tool._server_connecting.clear()
             mcp_tool._server_connect_errors.clear()
+            mcp_tool._server_connect_reasons.clear()
             mcp_tool._server_connecting.add("connecting")
             mcp_tool._server_connect_errors["failed"] = "Connection closed"
+            mcp_tool._server_connect_reasons["failed"] = "auth_required"
 
         try:
             statuses = {
@@ -302,15 +312,52 @@ class TestMCPStatus:
                 mcp_tool._server_connecting.update(saved_connecting)
                 mcp_tool._server_connect_errors.clear()
                 mcp_tool._server_connect_errors.update(saved_errors)
+                mcp_tool._server_connect_reasons.clear()
+                mcp_tool._server_connect_reasons.update(saved_reasons)
 
         assert statuses["configured"]["status"] == "configured"
         assert statuses["configured"]["connected"] is False
         assert statuses["configured"]["disabled"] is False
         assert statuses["connecting"]["status"] == "connecting"
+        assert statuses["connecting"]["reason"] == "stale"
         assert statuses["failed"]["status"] == "failed"
         assert statuses["failed"]["error"] == "Connection closed"
+        assert statuses["failed"]["reason"] == "auth_required"
         assert statuses["disabled"]["status"] == "disabled"
         assert statuses["disabled"]["disabled"] is True
+
+    def test_status_ignores_a_runtime_owned_by_another_profile(self, monkeypatch):
+        import tools.mcp_tool as mcp_tool
+
+        monkeypatch.setattr(
+            mcp_tool,
+            "_load_mcp_config",
+            lambda: {"shared": {"command": "shared-mcp"}},
+        )
+        monkeypatch.setattr(mcp_tool, "_mcp_registry_scope", lambda: "profile:work")
+        foreign_server = MagicMock(spec=mcp_tool.MCPServerTask)
+        foreign_server.session = object()
+        foreign_server._registered_tool_names = ["secret_tool"]
+        foreign_server._tools = []
+        foreign_server._sampling = None
+        with mcp_tool._lock:
+            saved_servers = dict(mcp_tool._servers)
+            saved_scopes = dict(mcp_tool._server_scope_keys)
+            mcp_tool._servers["shared"] = foreign_server
+            mcp_tool._server_scope_keys["shared"] = "profile:other"
+
+        try:
+            [status] = mcp_tool.get_mcp_status()
+        finally:
+            with mcp_tool._lock:
+                mcp_tool._servers.clear()
+                mcp_tool._servers.update(saved_servers)
+                mcp_tool._server_scope_keys.clear()
+                mcp_tool._server_scope_keys.update(saved_scopes)
+
+        assert status["status"] == "configured"
+        assert status["reason"] == "stale"
+        assert status["tools"] == 0
 
 
 class TestLifecycleConfig:

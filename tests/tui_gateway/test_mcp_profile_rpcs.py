@@ -110,6 +110,50 @@ def test_list_reflects_the_scoped_profile(hermes_root):
     assert work_server["command"] == "svc-a-bin"
 
 
+def test_status_is_profile_scoped_and_credential_safe(hermes_root):
+    _result(
+        _call(
+            "mcp.servers.add",
+            {"profile": "work", "name": "svc-a", "config": {"command": "svc-a-bin"}},
+        )
+    )
+    _result(
+        _call(
+            "mcp.servers.add",
+            {"profile": "other", "name": "svc-b", "config": {"command": "svc-b-bin"}},
+        )
+    )
+
+    payload = _result(_call("mcp.servers.status", {"profile": "work"}))
+
+    assert payload["checked_at"] > 0
+    assert payload["servers"] == [
+        {
+            "name": "svc-a",
+            "transport": "stdio",
+            "tools": 0,
+            "connected": False,
+            "disabled": False,
+            "status": "configured",
+            "reason": "stale",
+        }
+    ]
+    assert "error" not in str(payload)
+
+
+def test_status_redacts_internal_failures(hermes_root, monkeypatch):
+    import tools.mcp_tool as mcp_tool
+
+    def fail():
+        raise RuntimeError("token=must-not-leak")
+
+    monkeypatch.setattr(mcp_tool, "get_mcp_status", fail)
+    response = _call("mcp.servers.status", {"profile": "work"})
+
+    assert response["error"]["message"] == "MCP status unavailable"
+    assert "must-not-leak" not in str(response)
+
+
 def test_set_api_key_writes_env_and_header_to_right_profile(hermes_root):
     root = hermes_root
     _result(
