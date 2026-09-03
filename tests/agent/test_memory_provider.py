@@ -278,6 +278,22 @@ class TestMemoryManager:
         assert len(spill_files) == 1
         assert spill_files[0].read_text() == provider._prefetch_result + "\n"
 
+    def test_duplicate_registration_preserves_initial_builtin_trust(
+        self, tmp_path, monkeypatch
+    ):
+        self._set_spill_config(monkeypatch, tmp_path, max_chars=40)
+        mgr = MemoryManager()
+        provider = FakeMemoryProvider("builtin")
+        provider._prefetch_result = "built-in memory keeps its own configured budget " * 3
+        mgr.add_provider(provider, is_builtin=True)
+        mgr.add_provider(provider)
+
+        result = mgr.prefetch_all("what do you remember?", session_id="session-6")
+
+        assert mgr.providers == [provider]
+        assert result == provider._prefetch_result
+        assert not list(tmp_path.rglob("*.txt"))
+
 
     def test_queue_prefetch_all(self):
         mgr = MemoryManager()
