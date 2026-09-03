@@ -50,6 +50,34 @@ def test_breakdown_includes_major_categories():
     assert data["estimated_total"] > 0
 
 
+def test_breakdown_reads_skills_from_volatile_tier_without_double_counting():
+    skills_block = "<available_skills>\n    - demo: hi\n</available_skills>"
+    agent, parts = _make_agent(
+        stable="base guidance",
+        volatile=f"Current time: now\n{skills_block}",
+    )
+
+    with patch("agent.system_prompt.build_system_prompt_parts", return_value=parts):
+        data = compute_session_context_breakdown(agent)
+
+    tokens_by_id = {item["id"]: item["tokens"] for item in data["categories"]}
+    assert tokens_by_id["skills"] > 0
+    assert tokens_by_id["system_prompt"] == 8
+
+
+def test_context_details_reads_skills_from_volatile_tier():
+    skills_block = "<available_skills>\n    - demo: hi\n</available_skills>"
+    agent, parts = _make_agent(
+        stable="base guidance",
+        volatile=f"Current time: now\n{skills_block}",
+    )
+
+    with patch("agent.system_prompt.build_system_prompt_parts", return_value=parts):
+        details = compute_context_details(agent)
+
+    assert [entry["name"] for entry in details["skills"]] == ["demo"]
+
+
 
 # ── /context renderers (pure functions over the payload) ────────────────────
 

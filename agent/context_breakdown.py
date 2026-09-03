@@ -99,14 +99,14 @@ def compute_session_context_breakdown(
     context = parts.get("context", "") or ""
     volatile = parts.get("volatile", "") or ""
 
-    skills_match = _SKILLS_BLOCK_RE.search(stable)
+    skills_match = _SKILLS_BLOCK_RE.search(volatile) or _SKILLS_BLOCK_RE.search(stable)
     skills_index = skills_match.group(0) if skills_match else ""
 
     memory_block, user_block = _memory_blocks(agent)
     memory_text = "\n\n".join(part for part in (memory_block, user_block) if part).strip()
 
     system_core = _strip_blocks(stable, skills_index)
-    system_tail = _strip_blocks(volatile, memory_block, user_block)
+    system_tail = _strip_blocks(volatile, skills_index, memory_block, user_block)
     system_prompt_text = "\n\n".join(part for part in (system_core, system_tail) if part).strip()
 
     tools = list(getattr(agent, "tools", None) or [])
@@ -227,7 +227,8 @@ def compute_context_details(agent: Any) -> Dict[str, Any]:
 
     parts = build_system_prompt_parts(agent)
     stable = parts.get("stable", "") or ""
-    skills_match = _SKILLS_BLOCK_RE.search(stable)
+    volatile = parts.get("volatile", "") or ""
+    skills_match = _SKILLS_BLOCK_RE.search(volatile) or _SKILLS_BLOCK_RE.search(stable)
     skills_block = skills_match.group(0) if skills_match else ""
 
     skills: List[Dict[str, Any]] = []
