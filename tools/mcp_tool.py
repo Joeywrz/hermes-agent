@@ -5307,6 +5307,9 @@ class _MCPConnectErrorText(str):
         value.reason = reason
         return value
 
+    def __reduce__(self):
+        return type(self), (str(self), self.reason)
+
 
 def _connect_error_text(message: str, exc: BaseException) -> str:
     return _MCPConnectErrorText(message, _connect_failure_reason(exc))

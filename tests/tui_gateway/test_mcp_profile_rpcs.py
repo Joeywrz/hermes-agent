@@ -155,6 +155,30 @@ def test_status_redacts_internal_failures(hermes_root, monkeypatch):
     assert "must-not-leak" not in str(response)
 
 
+def test_status_omits_raw_server_errors(hermes_root, monkeypatch):
+    import tools.mcp_tool as mcp_tool
+
+    monkeypatch.setattr(
+        mcp_tool,
+        "get_mcp_status",
+        lambda configured, include_runtime: [{
+            "name": "svc",
+            "transport": "stdio",
+            "tools": 0,
+            "connected": False,
+            "disabled": False,
+            "status": "failed",
+            "reason": "auth_required",
+            "error": "token=must-not-leak",
+        }],
+    )
+
+    payload = _result(_call("mcp.servers.status"))
+    assert payload["servers"][0]["reason"] == "auth_required"
+    assert "error" not in payload["servers"][0]
+    assert "must-not-leak" not in str(payload)
+
+
 def test_status_does_not_run_the_runtime_config_loader(hermes_root, monkeypatch):
     import tools.mcp_tool as mcp_tool
 

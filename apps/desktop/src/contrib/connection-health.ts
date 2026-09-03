@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+
 import { useContributions } from './react/use-contributions'
 import type { Contribution, ContributionSource } from './types'
 
@@ -45,6 +47,23 @@ function isProvider(value: unknown): value is ConnectionHealthProvider {
   return typeof value === 'object' && value !== null && typeof (value as { load?: unknown }).load === 'function'
 }
 
+function isRepair(value: unknown): value is ConnectionHealthRepair {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const repair = value as { kind?: unknown; message?: unknown; path?: unknown }
+
+  if (repair.kind === 'message') {
+    return typeof repair.message === 'string'
+  }
+
+  return repair.kind === 'route'
+    && typeof repair.path === 'string'
+    && repair.path.startsWith('/')
+    && !repair.path.startsWith('//')
+}
+
 export function connectionHealthProviders(
   contributions: readonly Contribution[]
 ): RegisteredConnectionHealthProvider[] {
@@ -60,12 +79,14 @@ export function connectionHealthProviders(
       id: contribution.id,
       load: provider.load,
       ...(typeof provider.name === 'string' ? { name: provider.name } : {}),
-      ...(provider.repair ? { repair: provider.repair } : {}),
+      ...(isRepair(provider.repair) ? { repair: provider.repair } : {}),
       source: contribution.source ?? 'core'
     }]
   })
 }
 
 export function useConnectionHealthProviders(): RegisteredConnectionHealthProvider[] {
-  return connectionHealthProviders(useContributions(CONNECTION_HEALTH_AREA))
+  const contributions = useContributions(CONNECTION_HEALTH_AREA)
+
+  return useMemo(() => connectionHealthProviders(contributions), [contributions])
 }

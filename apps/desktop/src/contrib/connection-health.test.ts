@@ -1,6 +1,12 @@
+import { renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { CONNECTION_HEALTH_AREA, connectionHealthProviders } from './connection-health'
+import {
+  CONNECTION_HEALTH_AREA,
+  connectionHealthProviders,
+  useConnectionHealthProviders
+} from './connection-health'
+import { registry } from './registry'
 import type { Contribution } from './types'
 
 describe('connectionHealthProviders', () => {
@@ -24,6 +30,12 @@ describe('connectionHealthProviders', () => {
         data: { load: 'not-callable' },
         id: 'broken:health',
         source: 'plugin:broken'
+      },
+      {
+        area: CONNECTION_HEALTH_AREA,
+        data: { load, repair: { kind: 'command', value: 'rm -rf /' } },
+        id: 'unsafe:health',
+        source: 'plugin:unsafe'
       }
     ]
 
@@ -35,7 +47,32 @@ describe('connectionHealthProviders', () => {
         name: 'Demo health',
         repair: { kind: 'route', path: '/settings?tab=plugins' },
         source: 'plugin:demo'
+      },
+      {
+        id: 'unsafe:health',
+        load,
+        source: 'plugin:unsafe'
       }
     ])
+  })
+
+  it('keeps the provider snapshot stable across unrelated rerenders', () => {
+    const dispose = registry.register({
+      area: CONNECTION_HEALTH_AREA,
+      data: { load: async () => [] },
+      id: 'stable:health',
+      source: 'plugin:stable'
+    })
+
+    try {
+      const { result, rerender } = renderHook(() => useConnectionHealthProviders())
+      const first = result.current
+
+      rerender()
+
+      expect(result.current).toBe(first)
+    } finally {
+      dispose()
+    }
   })
 })

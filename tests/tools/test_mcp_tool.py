@@ -4,9 +4,11 @@ All tests use mocks -- no real MCP servers or subprocesses are started.
 """
 
 import asyncio
+import copy
 import json
 import logging
 import os
+import pickle
 import sys
 import threading
 import time
@@ -275,6 +277,13 @@ class TestMCPStatus:
             mcp_tool._connect_failure_reason(OAuthNonInteractiveError("browser required"))
             == "auth_required"
         )
+        tagged = mcp_tool._connect_error_text(
+            "Connection closed",
+            OAuthNonInteractiveError("browser required"),
+        )
+        for cloned in (copy.copy(tagged), copy.deepcopy(tagged), pickle.loads(pickle.dumps(tagged))):
+            assert cloned == "Connection closed"
+            assert getattr(cloned, "reason") == "auth_required"
 
         monkeypatch.setattr(
             mcp_tool,
