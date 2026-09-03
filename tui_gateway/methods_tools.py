@@ -2093,6 +2093,7 @@ def _(rid, params: dict) -> dict:
     try:
         import time
 
+        from hermes_cli.mcp_config import _get_mcp_servers
         from tools.mcp_tool import get_mcp_status
 
         safe_fields = (
@@ -2109,7 +2110,7 @@ def _(rid, params: dict) -> dict:
             {
                 "servers": [
                     {key: entry[key] for key in safe_fields if key in entry}
-                    for entry in get_mcp_status()
+                    for entry in get_mcp_status(_get_mcp_servers())
                 ],
                 "checked_at": int(time.time() * 1000),
             },

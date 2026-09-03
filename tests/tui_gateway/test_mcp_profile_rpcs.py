@@ -154,6 +154,25 @@ def test_status_redacts_internal_failures(hermes_root, monkeypatch):
     assert "must-not-leak" not in str(response)
 
 
+def test_status_does_not_run_the_runtime_config_loader(hermes_root, monkeypatch):
+    import tools.mcp_tool as mcp_tool
+
+    _result(
+        _call(
+            "mcp.servers.add",
+            {"profile": "work", "name": "svc-a", "config": {"command": "svc-a-bin"}},
+        )
+    )
+
+    def forbidden():
+        raise AssertionError("runtime config loader executed")
+
+    monkeypatch.setattr(mcp_tool, "_load_mcp_config", forbidden)
+
+    payload = _result(_call("mcp.servers.status", {"profile": "work"}))
+    assert [server["name"] for server in payload["servers"]] == ["svc-a"]
+
+
 def test_set_api_key_writes_env_and_header_to_right_profile(hermes_root):
     root = hermes_root
     _result(

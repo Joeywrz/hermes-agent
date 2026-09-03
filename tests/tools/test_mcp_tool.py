@@ -288,16 +288,19 @@ class TestMCPStatus:
         )
         with mcp_tool._lock:
             saved_servers = dict(mcp_tool._servers)
+            saved_scopes = dict(mcp_tool._server_scope_keys)
             saved_connecting = set(mcp_tool._server_connecting)
             saved_errors = dict(mcp_tool._server_connect_errors)
-            saved_reasons = dict(mcp_tool._server_connect_reasons)
             mcp_tool._servers.clear()
+            mcp_tool._server_scope_keys.clear()
             mcp_tool._server_connecting.clear()
             mcp_tool._server_connect_errors.clear()
-            mcp_tool._server_connect_reasons.clear()
             mcp_tool._server_connecting.add("connecting")
             mcp_tool._server_connect_errors["failed"] = "Connection closed"
-            mcp_tool._server_connect_reasons["failed"] = "auth_required"
+            failed_server = MagicMock(spec=mcp_tool.MCPServerTask)
+            failed_server.session = None
+            failed_server._error = OAuthNonInteractiveError("browser required")
+            mcp_tool._servers["failed"] = failed_server
 
         try:
             statuses = {
@@ -308,12 +311,12 @@ class TestMCPStatus:
             with mcp_tool._lock:
                 mcp_tool._servers.clear()
                 mcp_tool._servers.update(saved_servers)
+                mcp_tool._server_scope_keys.clear()
+                mcp_tool._server_scope_keys.update(saved_scopes)
                 mcp_tool._server_connecting.clear()
                 mcp_tool._server_connecting.update(saved_connecting)
                 mcp_tool._server_connect_errors.clear()
                 mcp_tool._server_connect_errors.update(saved_errors)
-                mcp_tool._server_connect_reasons.clear()
-                mcp_tool._server_connect_reasons.update(saved_reasons)
 
         assert statuses["configured"]["status"] == "configured"
         assert statuses["configured"]["connected"] is False
@@ -348,6 +351,9 @@ class TestMCPStatus:
 
         try:
             [status] = mcp_tool.get_mcp_status()
+            with mcp_tool._lock:
+                mcp_tool._server_scope_keys.pop("shared", None)
+            [unscoped_status] = mcp_tool.get_mcp_status()
         finally:
             with mcp_tool._lock:
                 mcp_tool._servers.clear()
@@ -358,6 +364,8 @@ class TestMCPStatus:
         assert status["status"] == "configured"
         assert status["reason"] == "stale"
         assert status["tools"] == 0
+        assert unscoped_status["status"] == "configured"
+        assert unscoped_status["reason"] == "stale"
 
 
 class TestLifecycleConfig:
