@@ -64,6 +64,28 @@ function isRepair(value: unknown): value is ConnectionHealthRepair {
     && !repair.path.startsWith('//')
 }
 
+function safeHealthResults(value: unknown): readonly ConnectionHealthResult[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.flatMap(item => {
+    if (typeof item !== 'object' || item === null) {
+      return []
+    }
+
+    const result = item as ConnectionHealthResult & { repair?: unknown }
+
+    if (result.repair === undefined || isRepair(result.repair)) {
+      return [result]
+    }
+
+    const { repair: _unsafeRepair, ...safeResult } = result
+
+    return [safeResult as ConnectionHealthResult]
+  })
+}
+
 export function connectionHealthProviders(
   contributions: readonly Contribution[]
 ): RegisteredConnectionHealthProvider[] {
@@ -77,7 +99,7 @@ export function connectionHealthProviders(
     return [{
       ...(typeof provider.icon === 'string' ? { icon: provider.icon } : {}),
       id: contribution.id,
-      load: provider.load,
+      load: async () => safeHealthResults(await provider.load()),
       ...(typeof provider.name === 'string' ? { name: provider.name } : {}),
       ...(isRepair(provider.repair) ? { repair: provider.repair } : {}),
       source: contribution.source ?? 'core'

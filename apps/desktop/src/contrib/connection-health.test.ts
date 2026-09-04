@@ -43,17 +43,73 @@ describe('connectionHealthProviders', () => {
       {
         icon: 'plug',
         id: 'demo:health',
-        load,
+        load: expect.any(Function),
         name: 'Demo health',
         repair: { kind: 'route', path: '/settings?tab=plugins' },
         source: 'plugin:demo'
       },
       {
         id: 'unsafe:health',
-        load,
+        load: expect.any(Function),
         source: 'plugin:unsafe'
       }
     ])
+  })
+
+  it('drops malformed repairs returned by a provider load', async () => {
+    const load = vi.fn(async () => [
+      {
+        checkedAt: 1,
+        id: 'unsafe',
+        name: 'Unsafe',
+        reason: 'check_failed' as const,
+        repair: { kind: 'command', value: 'rm -rf /' }
+      },
+      {
+        checkedAt: 2,
+        id: 'safe',
+        name: 'Safe',
+        reason: 'auth_required' as const,
+        repair: { kind: 'message' as const, message: 'Sign in again' }
+      },
+      {
+        checkedAt: 3,
+        id: 'external-route',
+        name: 'External route',
+        reason: 'check_failed' as const,
+        repair: { kind: 'route' as const, path: '//host' }
+      }
+    ])
+
+    const [provider] = connectionHealthProviders([{
+      area: CONNECTION_HEALTH_AREA,
+      data: { load },
+      id: 'loaded:health',
+      source: 'plugin:loaded'
+    }])
+
+    await expect(provider.load()).resolves.toEqual([
+      {
+        checkedAt: 1,
+        id: 'unsafe',
+        name: 'Unsafe',
+        reason: 'check_failed'
+      },
+      {
+        checkedAt: 2,
+        id: 'safe',
+        name: 'Safe',
+        reason: 'auth_required',
+        repair: { kind: 'message', message: 'Sign in again' }
+      },
+      {
+        checkedAt: 3,
+        id: 'external-route',
+        name: 'External route',
+        reason: 'check_failed'
+      }
+    ])
+    expect(load).toHaveBeenCalledOnce()
   })
 
   it('keeps the provider snapshot stable across unrelated rerenders', () => {
