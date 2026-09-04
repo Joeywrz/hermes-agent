@@ -232,6 +232,55 @@ def test_status_does_not_mix_launch_runtime_into_another_profile(hermes_root):
     assert payload["servers"][0]["tools"] == 0
 
 
+def test_status_includes_named_profile_runtime_in_multiplex(hermes_root):
+    from agent.secret_scope import is_multiplex_active, set_multiplex_active
+    from hermes_constants import (
+        hermes_home_key,
+        reset_hermes_home_override,
+        set_hermes_home_override,
+    )
+    import tools.mcp_tool as mcp_tool
+
+    _result(
+        _call(
+            "mcp.servers.add",
+            {"profile": "work", "name": "shared", "config": {"command": "work-bin"}},
+        )
+    )
+    work_token = set_hermes_home_override(hermes_root / "profiles" / "work")
+    try:
+        work_scope = hermes_home_key()
+    finally:
+        reset_hermes_home_override(work_token)
+
+    work_server = SimpleNamespace(
+        session=object(),
+        _registered_tool_names=["work_tool"],
+        _tools=[],
+        _sampling=None,
+    )
+    previous_multiplex = is_multiplex_active()
+    with mcp_tool._lock:
+        saved_servers = dict(mcp_tool._servers)
+        saved_scopes = dict(mcp_tool._server_scope_keys)
+        mcp_tool._servers["shared"] = work_server  # type: ignore[assignment]
+        mcp_tool._server_scope_keys["shared"] = work_scope
+
+    set_multiplex_active(True)
+    try:
+        payload = _result(_call("mcp.servers.status", {"profile": "work"}))
+    finally:
+        set_multiplex_active(previous_multiplex)
+        with mcp_tool._lock:
+            mcp_tool._servers.clear()
+            mcp_tool._servers.update(saved_servers)
+            mcp_tool._server_scope_keys.clear()
+            mcp_tool._server_scope_keys.update(saved_scopes)
+
+    assert payload["servers"][0]["status"] == "connected"
+    assert payload["servers"][0]["tools"] == 1
+
+
 def test_set_api_key_writes_env_and_header_to_right_profile(hermes_root):
     root = hermes_root
     _result(

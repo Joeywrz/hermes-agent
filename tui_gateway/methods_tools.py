@@ -2087,6 +2087,7 @@ def _(rid, params: dict) -> dict:
     Params: optional ``profile``. Raw connection errors are deliberately
     omitted because they can contain paths, URLs, or credential-adjacent data.
     """
+    from agent.secret_scope import is_multiplex_active
     from hermes_constants import hermes_home_key
 
     runtime_home_key = hermes_home_key()
@@ -2115,7 +2116,10 @@ def _(rid, params: dict) -> dict:
                     {key: entry[key] for key in safe_fields if key in entry}
                     for entry in get_mcp_status(
                         _get_mcp_servers(),
-                        include_runtime=hermes_home_key() == runtime_home_key,
+                        include_runtime=(
+                            is_multiplex_active()
+                            or hermes_home_key() == runtime_home_key
+                        ),
                     )
                 ],
                 "checked_at": int(time.time() * 1000),
