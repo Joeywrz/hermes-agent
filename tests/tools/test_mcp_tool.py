@@ -375,6 +375,74 @@ class TestMCPStatus:
         assert unscoped_status["status"] == "configured"
         assert unscoped_status["reason"] == "stale"
 
+    def test_scoped_shutdown_clears_only_its_connection_status(self, monkeypatch):
+        import tools.mcp_tool as mcp_tool
+
+        monkeypatch.setattr(mcp_tool, "_stop_mcp_loop", lambda **_kwargs: None)
+        with mcp_tool._lock:
+            saved_servers = dict(mcp_tool._servers)
+            saved_scopes = dict(mcp_tool._server_scope_keys)
+            saved_connecting = set(mcp_tool._server_connecting)
+            saved_errors = dict(mcp_tool._server_connect_errors)
+            saved_retry_after = dict(mcp_tool._server_connect_retry_after)
+            saved_failures = dict(mcp_tool._server_connect_failures)
+            mcp_tool._servers.clear()
+            mcp_tool._server_scope_keys.clear()
+            mcp_tool._server_scope_keys.update({
+                "work-connecting": "profile:work",
+                "work-failed": "profile:work",
+                "other-failed": "profile:other",
+            })
+            mcp_tool._server_connecting.clear()
+            mcp_tool._server_connecting.add("work-connecting")
+            mcp_tool._server_connect_errors.clear()
+            mcp_tool._server_connect_errors.update({
+                "work-failed": "work error",
+                "other-failed": "other error",
+            })
+            mcp_tool._server_connect_retry_after.clear()
+            mcp_tool._server_connect_retry_after.update({
+                "work-failed": 1.0,
+                "other-failed": 2.0,
+            })
+            mcp_tool._server_connect_failures.clear()
+            mcp_tool._server_connect_failures.update({
+                "work-failed": 1,
+                "other-failed": 2,
+            })
+
+        try:
+            mcp_tool.shutdown_mcp_servers(scope="profile:work")
+
+            with mcp_tool._lock:
+                assert mcp_tool._server_connecting == set()
+                assert mcp_tool._server_connect_errors == {
+                    "other-failed": "other error"
+                }
+                assert mcp_tool._server_scope_keys == {
+                    "other-failed": "profile:other"
+                }
+                assert mcp_tool._server_connect_retry_after == {
+                    "other-failed": 2.0
+                }
+                assert mcp_tool._server_connect_failures == {
+                    "other-failed": 2
+                }
+        finally:
+            with mcp_tool._lock:
+                mcp_tool._servers.clear()
+                mcp_tool._servers.update(saved_servers)
+                mcp_tool._server_scope_keys.clear()
+                mcp_tool._server_scope_keys.update(saved_scopes)
+                mcp_tool._server_connecting.clear()
+                mcp_tool._server_connecting.update(saved_connecting)
+                mcp_tool._server_connect_errors.clear()
+                mcp_tool._server_connect_errors.update(saved_errors)
+                mcp_tool._server_connect_retry_after.clear()
+                mcp_tool._server_connect_retry_after.update(saved_retry_after)
+                mcp_tool._server_connect_failures.clear()
+                mcp_tool._server_connect_failures.update(saved_failures)
+
 
 class TestLifecycleConfig:
     def test_get_lifecycle_seconds_accepts_top_level_and_nested_values(self):
@@ -2759,6 +2827,52 @@ class TestRegisterMcpServers:
 
         assert "mcp__my_server__tool1" in result
         _servers.pop("my_server", None)
+
+    def test_records_profile_scope_before_connect(self):
+        import tools.mcp_tool as mcp_tool
+
+        seen = []
+
+        async def fake_register(name, _cfg):
+            with mcp_tool._lock:
+                seen.append((
+                    name in mcp_tool._server_connecting,
+                    mcp_tool._server_scope_keys.get(name),
+                ))
+            raise RuntimeError("expected connect failure")
+
+        with mcp_tool._lock:
+            saved_servers = dict(mcp_tool._servers)
+            saved_scopes = dict(mcp_tool._server_scope_keys)
+            saved_connecting = set(mcp_tool._server_connecting)
+            saved_errors = dict(mcp_tool._server_connect_errors)
+            mcp_tool._servers.clear()
+            mcp_tool._server_scope_keys.clear()
+            mcp_tool._server_connecting.clear()
+            mcp_tool._server_connect_errors.clear()
+
+        try:
+            with patch("tools.mcp_tool._MCP_AVAILABLE", True), \
+                 patch("tools.mcp_tool._filter_suspicious_mcp_servers", side_effect=lambda value: value), \
+                 patch("tools.mcp_tool._connect_cooldown_active", return_value=False), \
+                 patch("tools.mcp_tool._mcp_registry_scope", return_value="profile:work"), \
+                 patch("tools.mcp_tool._discover_and_register_server", side_effect=fake_register):
+                mcp_tool.register_mcp_servers({"scoped": {"command": "test"}})
+
+            assert seen == [(True, "profile:work")]
+            with mcp_tool._lock:
+                assert mcp_tool._server_connect_errors["scoped"].reason == "check_failed"
+                assert mcp_tool._server_scope_keys["scoped"] == "profile:work"
+        finally:
+            with mcp_tool._lock:
+                mcp_tool._servers.clear()
+                mcp_tool._servers.update(saved_servers)
+                mcp_tool._server_scope_keys.clear()
+                mcp_tool._server_scope_keys.update(saved_scopes)
+                mcp_tool._server_connecting.clear()
+                mcp_tool._server_connecting.update(saved_connecting)
+                mcp_tool._server_connect_errors.clear()
+                mcp_tool._server_connect_errors.update(saved_errors)
 
     def test_skips_servers_already_connecting(self):
         """Servers in _server_connecting must not be spawned again (#58862)."""

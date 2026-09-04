@@ -9146,6 +9146,35 @@ def shutdown_mcp_servers(*, scope: Optional[str] = None):
             if scope is None or _server_scope_keys.get(name) == scope
         ]
         servers_snapshot = [_servers[name] for name in selected]
+        selected_status = (
+            set(_servers)
+            | set(_server_scope_keys)
+            | set(_server_connecting)
+            | set(_server_connect_errors)
+            if scope is None
+            else {
+                name
+                for name, owner in _server_scope_keys.items()
+                if owner == scope
+            }
+        )
+
+    def _clear_selected_status() -> None:
+        with _lock:
+            _server_connecting.difference_update(selected_status)
+            for name in selected_status:
+                _server_connect_errors.pop(name, None)
+                _server_scope_keys.pop(name, None)
+
+    def _clear_selected_retry_state() -> None:
+        with _lock:
+            if scope is None:
+                _server_connect_retry_after.clear()
+                _server_connect_failures.clear()
+                return
+            for name in selected_status:
+                _server_connect_retry_after.pop(name, None)
+                _server_connect_failures.pop(name, None)
 
     # Fast path: nothing to shut down. The connect-cooldown maps can still
     # be populated here — a server that failed to connect is never recorded
@@ -9154,9 +9183,8 @@ def shutdown_mcp_servers(*, scope: Optional[str] = None):
     # entries exist. Clear them so a post-shutdown restart re-attempts every
     # configured server immediately.
     if not servers_snapshot:
-        with _lock:
-            _server_connect_retry_after.clear()
-            _server_connect_failures.clear()
+        _clear_selected_status()
+        _clear_selected_retry_state()
         _stop_mcp_loop(only_if_idle=scope is not None)
         return
 
@@ -9173,12 +9201,11 @@ def shutdown_mcp_servers(*, scope: Optional[str] = None):
         with _lock:
             for name in selected:
                 _servers.pop(name, None)
-                _server_scope_keys.pop(name, None)
-            # Drop connect-retry cooldowns too: a full shutdown/restart
-            # should re-attempt every server immediately, not honour a
-            # stale per-server backoff from before the restart (#50394).
-            _server_connect_retry_after.clear()
-            _server_connect_failures.clear()
+        _clear_selected_status()
+        # Drop connect-retry cooldowns too: a shutdown/restart should
+        # re-attempt the selected servers immediately, not honour a stale
+        # per-server backoff from before the restart (#50394).
+        _clear_selected_retry_state()
 
     with _lock:
         loop = _mcp_loop
@@ -9199,9 +9226,7 @@ def shutdown_mcp_servers(*, scope: Optional[str] = None):
     # timed out, or was never scheduled (loop already stopped), a full
     # shutdown must leave no stale connect-cooldown state behind — the
     # next start should re-attempt every server immediately (#50394).
-    with _lock:
-        _server_connect_retry_after.clear()
-        _server_connect_failures.clear()
+    _clear_selected_retry_state()
 
     _stop_mcp_loop(only_if_idle=scope is not None)
 
