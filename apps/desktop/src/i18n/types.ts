@@ -1705,6 +1705,7 @@ export interface Translations {
   }
   agents: {
     extendedTranscript: string
+    imagePreviewsTruncated: string
     transcriptTruncated: string
     transcriptUnavailable: string
     close: string

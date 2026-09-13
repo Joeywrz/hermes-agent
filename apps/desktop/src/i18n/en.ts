@@ -1922,6 +1922,7 @@ export const en: Translations = {
   },
   agents: {
     extendedTranscript: 'Extended transcript',
+    imagePreviewsTruncated: 'Some image previews were omitted.',
     transcriptTruncated: 'Showing the latest 16 KiB',
     transcriptUnavailable: 'Live transcript unavailable',
 
