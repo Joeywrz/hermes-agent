@@ -3846,6 +3846,7 @@ export interface Translations {
     previousImage: string
     nextImage: string
     imagePosition: (current: number, total: number) => string
+    thumbnailRange: (start: number, end: number, total: number) => string
     downloadImage: string
     savingImage: string
     imagePreviewFailed: string
