@@ -619,7 +619,12 @@ function ToolEntry({ part }: ToolEntryProps) {
         </DisclosureRow>
       </div>
       {view.imageSources.length > 0 && (
-        <ToolImagePreviews active={open} sources={view.imageSources} toolCallId={toolCallId || disclosureId} />
+        <ToolImagePreviews
+          active={open}
+          revision={isPending ? 0 : 1}
+          sources={view.imageSources}
+          toolCallId={toolCallId || disclosureId}
+        />
       )}
       {open && (
         <div className="relative grid w-full min-w-0 max-w-full gap-1.5 overflow-hidden p-1.5">
