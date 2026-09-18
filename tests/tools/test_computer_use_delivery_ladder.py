@@ -171,7 +171,7 @@ def test_old_driver_without_structured_content_is_clean():
     ({}, None, None),
     ({}, "invalid", None),
 ])
-def test_refusal_code_reaches_model_response(data, structured, expected, monkeypatch):
+def test_refusal_code_reaches_model_response(data, structured, expected, monkeypatch, grant_computer_use_approvals):
     """The driver refusal survives real input dispatch and JSON serialization.
 
     Nested shape: trycua/cua libs/cua-driver/contract/fixtures/tool-refusal.json.
